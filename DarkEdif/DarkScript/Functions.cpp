@@ -441,7 +441,7 @@ constexpr int64_t ipow(int64_t base, int exp, int64_t result = 1)
 constexpr int64_t duet(int64_t base, int exp)
 {
 	int64_t sum = 1;
-	for (int i = 0; i < exp; i++)
+	for (int i = 0; i < exp; ++i)
 		sum += ipow(base, i + 1);
 	return sum;
 }
@@ -473,7 +473,7 @@ static void GenerateExpressionFuncFor(const int inputID)
 	Flags flags = (Flags)(funcID & Flags::Both);
 	funcID = (funcID / NumVariants); // remove last two bits (Flags) and shift remaining down in their place
 
-	//for (int i = 0; i < 30; i++)
+	//for (int i = 0; i < 30; ++i)
 	//	LOGI(_T("Anticipating that for function ID %i, %i is the template.\n"), i, (i - 4 - (i % 4)));
 
 	ACEInfo * last;
@@ -514,7 +514,7 @@ static void GenerateExpressionFuncFor(const int inputID)
 	{
 		needNewParam = true;
 		// Skip parameter 0 (function ID) - bear in mind last is None variant, so no repeat count
-		for (std::size_t i = 1; i < (std::size_t)last->NumOfParams; i++)
+		for (std::size_t i = 1; i < (std::size_t)last->NumOfParams; ++i)
 		{
 			if (GetParam(i) != Extension::Type::Float)
 			{
@@ -865,7 +865,7 @@ void FusionAPI GetExpressionTitle(mv* mV, short code, TCHAR* strBuf, short maxLe
 		if (origFuncID & Flags::Repeat)
 			++i; // skip repeat count parameter if present
 
-		for (; i < (size_t)exp.NumOfParams; i++)
+		for (; i < (size_t)exp.NumOfParams; ++i)
 		{
 			if (exp.Parameter[i].ep == ExpParams::String)
 				str << 'S';
@@ -970,7 +970,7 @@ long Extension::VariableFunction(const TCHAR* funcName, const ACEInfo& exp, long
 		funcTemplateIt = funcTemplateIt2;
 	}
 
-	size_t expParamIndex = 1; // skip func name (index 0), we already read it
+	std::size_t expParamIndex = 1; // skip func name (index 0), we already read it
 	// If 0, then function does not run
 	int repeatTimes = 1;
 
@@ -1010,7 +1010,7 @@ long Extension::VariableFunction(const TCHAR* funcName, const ACEInfo& exp, long
 		LOGW(_T("Generating anonymous function \"%s\".\n"), funcName);
 		funcTemplate = std::make_shared<FunctionTemplate>(this, funcName, Expected::Either, Expected::Either, true, (Extension::Type)((int)exp.Flags.ef + 1));
 		TCHAR name[3] = { _T('a'), _T('\0') };
-		for (size_t i = expParamIndex; i < (size_t)exp.NumOfParams; i++, ++name[0])
+		for (std::size_t i = expParamIndex; i < (size_t)exp.NumOfParams; ++i, ++name[0])
 		{
 			// Note the ++name[0] in for(;;><), gives variable names a, b, c
 			Type type = exp.Parameter[i].ep == ExpParams::String ? Type::String :
@@ -1047,7 +1047,7 @@ long Extension::VariableFunction(const TCHAR* funcName, const ACEInfo& exp, long
 		}
 
 		// Too many parameters (ignore func name and repeat count)
-		if (((size_t)exp.NumOfParams - expParamIndex) > funcTemplate->params.size())
+		if (((std::size_t)exp.NumOfParams - expParamIndex) > funcTemplate->params.size())
 			CreateError2V("Can't call function %s with %hi parameters, template expects up to %zu parameters.", funcTemplate->name.c_str(), exp.NumOfParams, funcTemplate->params.size());
 
 		// This template was made with a valid global ID that had an ext, but the ext vanished
@@ -1077,8 +1077,8 @@ long Extension::VariableFunction(const TCHAR* funcName, const ACEInfo& exp, long
 	newFunc->isVoidRun = isVoidRun;
 	newFunc->redirectedFromFunctionName = redirectedFromName;
 
-	size_t numNotInParamsVector = expParamIndex;
-	size_t numPassedExpFuncParams = exp.NumOfParams - numNotInParamsVector; // ignore func name and num repeats
+	std::size_t numNotInParamsVector = expParamIndex;
+	std::size_t numPassedExpFuncParams = exp.NumOfParams - numNotInParamsVector; // ignore func name and num repeats
 
 	newFunc->numPassedParams = numPassedExpFuncParams;
 
@@ -1088,9 +1088,9 @@ long Extension::VariableFunction(const TCHAR* funcName, const ACEInfo& exp, long
 
 	// don't confuse expParamIndex (A/C/E, will include funcName, may include numRepeats)
 	// vs. paramIndex (index of paramValues)
-	size_t paramIndex = 0;
+	std::size_t paramIndex = 0;
 
-	for (; paramIndex < numPassedExpFuncParams; paramIndex++)
+	for (; paramIndex < numPassedExpFuncParams; ++paramIndex)
 	{
 		Extension::Type paramTypeInTemplate = newFunc->funcTemplate->params[paramIndex].type;
 
@@ -1156,7 +1156,7 @@ long Extension::VariableFunction(const TCHAR* funcName, const ACEInfo& exp, long
 	}
 
 	// User didn't pass these, but template expects them; load from param defaults
-	for (; paramIndex < funcTemplate->params.size(); paramIndex++)
+	for (; paramIndex < funcTemplate->params.size(); ++paramIndex)
 	{
 		// No default, and user didn't pass one: no good.
 		if (funcTemplate->params[paramIndex].type != Extension::Type::Any &&
@@ -1179,6 +1179,10 @@ long Extension::VariableFunction(const TCHAR* funcName, const ACEInfo& exp, long
 		evt_SaveSelectedObjects(newFunc->selectedObjects);
 
 		newFunc->runLocation = Sub_GetLocation(actID);
+		newFunc->expectedReturnType = (Type)((int)exp.Flags.ef + 1);
+		// TODO: Conversion strictness checks, e.g.
+		// if (newFunc->funcTemplate->returnType != newFunc->expectedReturnType)
+
 		long l = ExecuteFunction(nullptr, newFunc);
 		newFunc->runLocation.clear();
 
@@ -1275,7 +1279,7 @@ std::tstring Extension::Sub_GetLocation(int actID)
 
 		auto cur = evg->GetCAByIndex(0);
 		std::size_t i = 0;
-		for (; i < evg->get_evgNCond(); i++)
+		for (; i < evg->get_evgNCond(); ++i)
 			cur = cur->Next();
 		short lastOI = cur->get_evtOi();
 		std::tstringstream str;
@@ -1523,14 +1527,16 @@ long Extension::ExecuteFunction(RunObjectMultiPlatPtr objToRunOn, const std::sha
 	lastReturn = rf->returnValue;
 
 	// Return to calling expression - return int and float directly as they occupy same memory address
-	if (rf->returnValue.type != Extension::Type::String)
-		return (long)rf->returnValue.data.integer;
-
-	// Clone string
-	const TCHAR * tc = rf->returnValue.data.string;
-	// assert(tc); // shouldn't have it as null under any scenario
-	tc = tc ? tc : _T("");
-	return (long)Runtime.CopyString(tc);
+	if (rf->expectedReturnType == Extension::Type::String)
+		return (long)Runtime.CopyString(Sub_GetValAsString(rf->returnValue).c_str());
+	if (rf->expectedReturnType == Extension::Type::Float)
+	{
+		const float f = Sub_GetValAsFloat(rf->returnValue);
+		return *(int*)&f;
+	}
+	if (rf->expectedReturnType == Extension::Type::Integer)
+		return Sub_GetValAsInteger(rf->returnValue);
+	return 0;
 }
 
 // Save object selection
@@ -1584,14 +1590,14 @@ void Extension::evt_SaveSelectedObjects(std::vector<FusionSelectedObjectListCach
 				poil->get_name(), poil->get_EventCount(), rhPtr->GetRH2EventCount());
 			continue;
 		}
-		LOGD(_T("Adding me a sexy object \"%.*s\", event count same (oil ec %i, rh ec %i) so it is selected.\n"),
+		LOGD(_T("Adding an object \"%.*s\", event count same (oil ec %i, rh ec %i) so it is selected.\n"),
 			std::isprint(poil->get_name()[0] & 0x7F) ? 24 : 3,
 			poil->get_name(), poil->get_EventCount(), rhPtr->GetRH2EventCount());
 
 		// Already in the list?
 		// TODO: Is this even possible? Multiple CRuns, maybe, but rhPtr is one CRun.
 		int j;
-		for (j = 0; j < (int)selectedObjects.size(); j++)
+		for (j = 0; j < (int)selectedObjects.size(); ++j)
 		{
 			if (selectedObjects[j].poil == poil)
 				break;
@@ -1670,10 +1676,12 @@ void Extension::evt_RestoreSelectedObjects(const std::vector<FusionSelectedObjec
 	}
 
 	const int rh2EventCount = rhPtr->GetRH2EventCount();
-	for (int i = 0; i < (int)selectedObjects.size(); i++)
+	for (std::size_t i = 0; i < (int)selectedObjects.size(); ++i)
 	{
 		const FusionSelectedObjectListCache& sel = selectedObjects[i];
 		auto & poil = sel.poil;
+		LOGD(_T("Restoring obj select: running for %s, with %zu saved instances.\n"), poil->get_name(),
+			sel.selectedObjects.size());
 
 		poil->set_EventCount(rh2EventCount);
 		poil->set_ListSelected(-1);
@@ -1685,7 +1693,7 @@ void Extension::evt_RestoreSelectedObjects(const std::vector<FusionSelectedObjec
 			{
 				poil->set_ListSelected(sel.selectedObjects[0]);
 				poil->set_NumOfSelected(poil->get_NumOfSelected()+1);
-				for (int j = 1; j < (int)sel.selectedObjects.size(); j++)
+				for (std::size_t j = 1; j < (int)sel.selectedObjects.size(); ++j)
 				{
 					short num = sel.selectedObjects[j];
 					auto&& pHo = rhPtr->GetObjectListOblOffsetByIndex(num);
@@ -1700,6 +1708,8 @@ void Extension::evt_RestoreSelectedObjects(const std::vector<FusionSelectedObjec
 			}
 		}
 	}
+
+	LOGE(_T("Restoring object selection done.\n"));
 }
 
 void Extension::Sub_RunPendingForeachFunc(const short oil, const std::shared_ptr<RunningFunction> &runningFunc)
