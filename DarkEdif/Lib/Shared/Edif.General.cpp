@@ -100,7 +100,7 @@ const TCHAR ** FusionAPI GetDependencies()
 
 	if (!Dependencies)
 	{
-		const json_value &DependenciesJSON = Edif::SDK->json["Dependencies"];
+		const json_value &DependenciesJSON = Edif::SDK->json["Dependencies"sv];
 		TCHAR* singletonPtr = singleton;
 
 		std::size_t Offset = 0;
@@ -132,7 +132,7 @@ const TCHAR ** FusionAPI GetDependencies()
 
 		for (unsigned int i = 0; i < DependenciesJSON.u.array.length; ++i)
 		{
-			std::tstring tstr = DarkEdif::UTF8ToTString((const char *)DependenciesJSON[i]);
+			std::tstring tstr = DarkEdif::UTF8ToTString(DependenciesJSON[i]);
 
 			_tcscpy(singletonPtr, tstr.c_str());
 			Dependencies[Offset++] = singletonPtr;
@@ -168,9 +168,9 @@ std::int16_t ForbiddenInternals2::GetRunObjectInfos2(mv * mV, kpxRunInfos * info
 	infoPtr->Actions = &Edif::SDK->ActionJumps[0];
 	infoPtr->Expressions = &Edif::SDK->ExpressionJumps[0];
 
-	infoPtr->NumOfConditions = CurLang["Conditions"].u.object.length;
-	infoPtr->NumOfActions = CurLang["Actions"].u.object.length;
-	infoPtr->NumOfExpressions = CurLang["Expressions"].u.object.length;
+	infoPtr->NumOfConditions = CurLang["Conditions"sv].u.object.length;
+	infoPtr->NumOfActions = CurLang["Actions"sv].u.object.length;
+	infoPtr->NumOfExpressions = CurLang["Expressions"sv].u.object.length;
 #ifdef DARKSCRIPT_EXTENSION
 	infoPtr->NumOfExpressions = Extension::GetNumExpressions();
 #endif
@@ -197,7 +197,10 @@ std::int16_t ForbiddenInternals2::GetRunObjectInfos2(mv * mV, kpxRunInfos * info
 	infoPtr->EditFlags = Extension::OEFLAGS;
 	infoPtr->EditPrefs = Extension::OEPREFS;
 
-	memcpy(&infoPtr->Identifier, Edif::SDK->json["Identifier"], 4);
+	const std::string_view ident = Edif::SDK->json["Identifier"sv];
+	assert(ident.size() == 4);
+
+	memcpy(&infoPtr->Identifier, ident.data(), 4);
 
 	// Smart properties can change the version Fusion is told
 	infoPtr->Version = DarkEdif::Properties::VersionFlags | Extension::Version;
@@ -356,7 +359,7 @@ std::int16_t FusionAPI ContinueRunObject(RUNDATA * rdPtr)
 ProjectFunc jint getNumberOfConditions(JNIEnv *, jobject, jlong cptr)
 {
 	//raise(SIGTRAP);
-	return CurLang["Conditions"].u.array.length;
+	return CurLang["Conditions"sv].u.array.length;
 }
 typedef jobject ByteBufferDirect;
 
@@ -704,7 +707,7 @@ size_t captureBacktrace(void ** buffer, size_t max)
 #include <cxxabi.h>
 void dumpBacktrace(std::ostream & os, void ** buffer, size_t count)
 {
-	os << "Call stack, last function is bottommost:\n";
+	os << "Call stack, last function is bottommost:\n"sv;
 	size_t outputMemSize = 512;
 	char * outputMem = (char *)malloc(outputMemSize);
 
@@ -720,7 +723,7 @@ void dumpBacktrace(std::ostream & os, void ** buffer, size_t count)
 		memset(outputMem, 0, outputMemSize);
 		int status = 0;
 		abi::__cxa_demangle(symbol, outputMem, &outputMemSize, &status);
-		os << "  #" << std::setw(2) << idx << ": " << addr << "  " << (status == 0 ? outputMem : symbol) << "\n";
+		os << "  #"sv << std::setw(2) << idx << ": "sv << addr << "  "sv << (status == 0 ? outputMem : symbol) << '\n';
 	}
 	free(outputMem);
 }
@@ -974,7 +977,7 @@ ProjectFunc void PROJ_FUNC_GEN(PROJECT_TARGET_NAME_UNDERSCORES_RAW, _dealloc())
 
 ProjectFunc int PROJ_FUNC_GEN(PROJECT_TARGET_NAME_UNDERSCORES_RAW, _getNumberOfConditions())
 {
-	return CurLang["Conditions"].u.array.length;
+	return CurLang["Conditions"sv].u.array.length;
 }
 ProjectFunc void * PROJ_FUNC_GEN(PROJECT_TARGET_NAME_UNDERSCORES_RAW, _createRunObject(void * file, void* cobPtr, int version, void * objCExtPtr))
 {
@@ -1034,8 +1037,8 @@ struct ForbiddenInternals
 		return s->bmp;
 #endif
 	}
-	static void * GetSurfCollisionMaskNativePtr(DarkEdif::Surface* s, const bool platform) {
-		return s->GetCollisionMask(platform)->GetNativePointer();
+	static void * GetSurfCollisionMaskNativePtr(DarkEdif::Surface* s, const std::uint32_t flags) {
+		return s->GetCollisionMask(flags)->GetNativePointer();
 	}
 	static void* GetCollisionMaskNativePtr(DarkEdif::CollisionMask* colMask) {
 		return colMask->GetNativePointer();
@@ -1169,12 +1172,12 @@ ProjectFunc void * PROJ_FUNC_GEN(PROJECT_TARGET_NAME_UNDERSCORES_RAW, _getRunObj
 		if (surf)
 		{
 			LOGV(_T("GetRunObjectCollisionMask got a non-null surface.\n"));
-			nativeMask = ForbiddenInternals::GetSurfCollisionMaskNativePtr(surf, (flags & 1) != 0);
+			nativeMask = ForbiddenInternals::GetSurfCollisionMaskNativePtr(surf, (std::uint32_t)flags);
 		}
 		else
 			LOGV(_T("GetRunObjectSurface got a null surface, returning null.\n"));
 #else // manual display
-		DarkEdif::CollisionMask* const colMask = ext->GetCollisionMask((flags & 1) != 0);
+		DarkEdif::CollisionMask* const colMask = ext->GetCollisionMask((std::uint32_t)flags);
 		if (colMask)
 		{
 			LOGV(_T("GetRunObjectCollisionMask got a non-null mask.\n"));

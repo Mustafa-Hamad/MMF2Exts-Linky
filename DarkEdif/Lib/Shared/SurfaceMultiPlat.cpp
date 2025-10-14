@@ -1091,12 +1091,12 @@ std::size_t DarkEdif::Surface::Internal_CreateMask(void* mask, const std::uint32
 
 DarkEdif::CollisionMask * DarkEdif::Surface::GetCollisionMask(const std::uint32_t flags)
 {
-	static const int SCMF_PLATFORM = 1;
-	auto& mask = flags & SCMF_PLATFORM ? platMask : obstacleMask;
+	static constexpr int SCMF_PLATFORM = 1;
 
 	if ((flags & SCMF_PLATFORM) != flags)
 		LOGE(_T("Unexpected flags supplied: expected 0 or 1, got %u.\n"), flags);
 
+	auto& mask = (flags & SCMF_PLATFORM) != 0 ? platMask : obstacleMask;
 	if (!mask)
 	{
 		if (collisionMaskByteCount == 0)
@@ -1490,6 +1490,21 @@ DarkEdif::Surface DarkEdif::Surface::CreateFromMainWindow(RunHeader* rhPtr)
 	LOGF(_T("Not implemented on this platform\n"));
 	return Surface(rhPtr, false, false, 0, 0, false);
 #endif
+}
+std::unique_ptr<DarkEdif::Surface> DarkEdif::Surface::CreateFromFilePath(Extension * ext,
+	std::tstring filePath, bool needBitmapFuncs, bool needTextFuncs, bool alpha)
+{
+	assert(ext);
+	const auto filePath2 = DarkEdif::MakePathUnembeddedIfNeeded(ext, filePath);
+	if (filePath2[0] == _T('>'))
+		return LOGE(_T("Couldn't make surface from path \"%s\", error: %s"), filePath.c_str(), &filePath2[1]), nullptr;
+
+	auto surf = std::make_unique<Surface>(ext->rhPtr, needBitmapFuncs, needTextFuncs, 1, 1, alpha);
+	if (ImageFileFormat::Unset != surf->LoadImageFromFilePath(filePath2))
+		return surf;
+
+	LOGE(_T("Couldn't init surface from path \"%s\", load failed"), filePath2.c_str());
+	return nullptr;
 }
 
 #ifdef _WIN32
