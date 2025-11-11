@@ -111,12 +111,15 @@ const TCHAR* const DarkEdif::JSON::LanguageName()
 // Case-insensitive comparison of texts. true if same. Uses stricmp or strcasecmp.
 bool DarkEdif::SVICompare(const std::string_view& first, const std::string_view& second)
 {
-	return first.size() == second.size() && !_stricmp(first.data(), second.data());
+	// std::string_view() default ctor makes with null ptr, so if empty, _stricmp may crash from null
+	return first.size() == second.size() && (first.empty() || !_stricmp(first.data(), second.data()));
 }
 // Case-insensitive comparison of texts. true if first param starts with second. Uses strnicmp or strncasecmp.
 bool DarkEdif::SVIComparePrefix(const std::string_view& text, const std::string_view& prefix)
 {
-	return text.size() >= prefix.size() && !_strnicmp(text.data(), prefix.data(), prefix.size());
+	assert(!prefix.empty());
+	// std::string_view() default ctor makes with null ptr, so if empty, _strnicmp may crash from null
+	return text.size() >= prefix.size() && !text.empty() && !_strnicmp(text.data(), prefix.data(), prefix.size());
 }
 
 
@@ -856,7 +859,7 @@ void DarkEdif::Properties::Internal_PropChange(mv* mV, EDITDATA*& edPtr, unsigne
 	// ((EDITDATA *)newEdPtr.get())->Props.Internal_DataAt(PropID)->sizeBytes = VV;
 	*(std::uint32_t*)(newEdPtr.get() + (((std::uint8_t*)&oldPropDataPtr->sizeBytes) - (std::uint8_t*)edPtr))
 		= (std::uint32_t)(sizeof(DarkEdif::Properties::Data) + oldPropDataPtr->propNameSize + newPropValueSize);
-	
+
 	static_assert(std::is_same_v<decltype(((EDITDATA*)newEdPtr.get())->Props.Internal_DataAt(PropID)->sizeBytes), std::uint32_t>, "Types invalid");
 
 	// Reallocate edPtr
@@ -1077,7 +1080,7 @@ BOOL DarkEdif::DLL::DLL_GetProperties(mv * mV, EDITDATA * edPtr, bool masterItem
 	for (std::size_t i = 0; i < CurLang["Properties"sv].u.array.length; ++i)
 		Props.visibleEditorProps[i] = true;
 #endif
-	
+
 	mvInsertProps(mV, edPtr, Edif::SDK->EdittimeProperties.get(), PROPID_TAB_GENERAL, TRUE);
 	ScanForDynamicPropChange(mV, edPtr, UINT32_MAX);
 	return TRUE; // OK
@@ -1333,7 +1336,7 @@ BOOL DarkEdif::DLL::DLL_GetPropCheck(mv * mV, EDITDATA * edPtr, unsigned int Pro
 
 	if (!GetPropRealID(PropID))
 		return FALSE;
-	
+
 	// converts ID from JSON index to real within IsPropChecked
 	return edPtr->Props.IsPropChecked(PropID);
 }
@@ -1593,7 +1596,7 @@ void TriggerShowForRange(const json_value &props, DLL::PropAccesser &elevProps, 
 		if (subEndRange != -1)
 			toAddRanges.push_back(std::make_pair(subStartRange, subEndRange));
 	}
-			
+
 	PropData* end = &Edif::SDK->EdittimeProperties[props.u.array.length];
 	// Pass a list with all-zero prop data after
 	// There's always a PropData to write to in EdittimeProperties, as it
@@ -1758,7 +1761,7 @@ int FusionAPI EnumElts(mv* mV, EDITDATA* edPtr, ENUMELTPROC enumProc, ENUMELTPRO
 	LOGV(_T("Call to %s with edPtr %p.\n"), _T(__FUNCTION__), edPtr);
 	// Note from Yves that the textual font properties - that is, TEXT_OEFLAG_EXTENSION,
 	// GetTextFont(), do not need their fonts enumed here, they are automatically grabbed during build.
-	// 
+	//
 	// Direct3D 11 apps:	All LOGFONT used by TEXT_OEFLAG_EXTENSION automatically stored.
 	//						Only TTF fonts are supported by D3D11.
 	// Direct3D 8 + 9 apps: Will need to use Font Embed object, the one for Windows.
@@ -1771,7 +1774,7 @@ int FusionAPI EnumElts(mv* mV, EDITDATA* edPtr, ENUMELTPROC enumProc, ENUMELTPRO
 	//						the Resources directory, you must link them.
 	//						You may also need to add the font to Build Phases.
 	//						https://community.clickteam.com/forum/thread/67739-custom-fonts/
-	
+
 	// Note that enumProc may change the image or font number passed to it.
 	int error = 0;
 	std::vector<std::pair<std::uint16_t*, int>> IdAndType;
@@ -2706,7 +2709,7 @@ template <typename T>
 {
 	// This function is a dummy so the compiler thinks UserConverterWrap always has a definition, but it shouldn't be run,
 	// because in the scenario where UserConverterWrap is executed, the below override should be what is compiled into the code instead.
-	LOGF(_T("Running dummy UserConverterWrap(). Should not happen."));
+	LOGF(_T("Running dummy UserConverterWrap(). Should not happen.\n"));
 	return nullptr;
 };
 // Wrapper when EDITDATA has a usable UserConverter function: just call it!
@@ -2732,7 +2735,7 @@ template <typename T>
 {
 	// This function is a dummy so the compiler thinks MigrateMiddleWrap always has a definition, but it shouldn't be run,
 	// because in the scenario where MigrateMiddleWrap is executed, the below override should be what is compiled into the code instead.
-	LOGF(_T("Running dummy MigrateMiddleWrap(). Should not happen."));
+	LOGF(_T("Running dummy MigrateMiddleWrap(). Should not happen.\n"));
 	return false;
 };
 // Wrapper when EDITDATA has a usable MigrateMiddle function: just call it!
@@ -2800,19 +2803,25 @@ HGLOBAL DarkEdif::DLL::DLL_UpdateEditStructure(mv* mV, EDITDATA* oldEdPtr)
 		return nullptr;
 	}
 
-	// Fusion may not call it for this scenario either. We'll see.
+	// Fusion will call to upgrade if the MFA is earlier than current ext version.
+	// This means the MFA Ext > MFX Ext, so either Fusion user installed an old ext version,
+	// or ext dev accidentally reverted their Extension::Version
 	if (oldExtVersion > Extension::Version)
 	{
 		DebugProp_OutputString(_T("UpdateEditStructure warning: MFA version is greater than current version.\n"));
 
 #ifdef _DEBUG
 		// If a developer, let them pick what to do. They might've screwed up the MFA version number.
-		int msgRet = MsgBox::WarningYesNoCancel(_T("Property update warning"), _T("UpdateEditStructure has current version %i and MFA has a version of %i. "
-			"Select an action to take:\n"
-			"Yes = run updater.\n"
-			"No = set the EDITDATA's version number to earlier version %i.\n"
-			"Cancel = make no changes and ignore the difference."),
-			Extension::Version, oldExtVersion, Extension::Version);
+		int msgRet = MsgBox::WarningYesNoCancel(_T("Property update warning"),
+			_T("UpdateEditStructure has current ext version %i and MFA has a later version of %i.\n"
+			"Did you install an old ext version or revert Extension::Version? If so, cancel and close MFA immediately without saving.\n\n"
+			"Otherwise, select an action to take:\n"
+			"Yes = run prop updater. Convert MFA version %i to current ext version %i.\n"
+			"No = just set the MFA's version number %i to earlier version %i, without changing properties.\n"
+			"Cancel = do not change anything, ignore the difference - will likely fail."),
+			Extension::Version, oldExtVersion,
+			oldExtVersion, Extension::Version,
+			oldExtVersion, Extension::Version);
 		if (msgRet != IDYES)
 		{
 			if (msgRet == IDNO)
@@ -3162,7 +3171,7 @@ HGLOBAL DarkEdif::DLL::DLL_UpdateEditStructure(mv* mV, EDITDATA* oldEdPtr)
 			// for reset only, once - as above, but once for a MFA, not every frame with ext
 			// never				- never makes popup
 			// Default: for reset only, once
-			// 
+			//
 			// Worth noting that property upgrade errors will always create an error popup box - this is not affected by this setting.
 
 			std::string upgradeBox = DarkEdif::GetIniSetting("SmartPropertiesUpgradeBox"sv);
@@ -3257,7 +3266,7 @@ ReadyToOutput:
 
 	// Copy data between eHeader and Props, if any present
 	// This is either the font for a text ext, or it's nothing.
-	// 
+	//
 	// To reset new edPtr's in-between data to zeros:
 	// memset(((char*)newEdPtr) + sizeof(EDITDATA::eHeader), 0, newOffset - oldOffset);
 	// But the GPTR alloc zero-inits so we don't bother here.
@@ -3371,7 +3380,7 @@ bool DarkEdif::Properties::IsPropChecked(int propID) const
 	const auto &p = Elevate(*this);
 	if (propID >= p.numProps)
 	{
-		LOGF(_T("Can't read property checkbox for property ID %d, the valid ID range is 0 to %hu."), propID, p.numProps);
+		LOGF(_T("Can't read property checkbox for property ID %d, the valid ID range is 0 to %hu.\n"), propID, p.numProps);
 		return false;
 	}
 	const std::uint8_t* chkBytes = p.dataForProps;
@@ -3426,9 +3435,9 @@ std::tstring DarkEdif::Properties::Internal_GetPropStr(const Properties::Data* d
 			assert(data2->propTypeID == Edif::Properties::IDs::PROPTYPE_EDIT_STRING);
 			return UTF8ToTString(std::string_view((const char*)data2->ReadPropValue(), data2->ReadPropValueSize()));
 		}
-		LOGF(_T("Unexpected data in list property, expecting L or S prefix, but got '%c'."), (char)rs->setIndicator);
+		LOGF(_T("Unexpected data in list property, expecting L or S prefix, but got '%c'.\n"), (char)rs->setIndicator);
 	}
-	LOGF(_T("GetPropertyStr() error; prop index %hu (name %s) is not a string property."),
+	LOGF(_T("GetPropertyStr() error; prop index %hu (name %s) is not a string property.\n"),
 		data->propJSONIndex, UTF8ToTString(data->ReadPropName()).c_str());
 	return std::tstring();
 }
@@ -3466,7 +3475,7 @@ float DarkEdif::Properties::Internal_GetPropNum(const Properties::Data* data) co
 		return ret;
 	}
 
-	LOGF(_T("GetPropertyNum() error; property name \"%s\", JSON index %hu, is not a numeric property."),
+	LOGF(_T("GetPropertyNum() error; property name \"%s\", JSON index %hu, is not a numeric property.\n"),
 		UTF8ToTString(data->ReadPropName()).c_str(), data->propJSONIndex);
 	return 0.f;
 }
@@ -3488,14 +3497,14 @@ std::uint16_t DarkEdif::Properties::Internal_GetPropertyImageID(const Properties
 		return UINT16_MAX;
 	if (data->propTypeID != Edif::Properties::IDs::PROPTYPE_IMAGELIST)
 	{
-		LOGF(_T("GetPropertyImageID() error; property name \"%s\", JSON index %hu, is not an image list."),
+		LOGF(_T("GetPropertyImageID() error; property name \"%s\", JSON index %hu, is not an image list.\n"),
 			UTF8ToTString(data->ReadPropName()).c_str(), data->propJSONIndex);
 		return UINT16_MAX;
 	}
 	const ImgListProperty* imgProp = (ImgListProperty*)data->ReadPropValue();
 	if (imgIndex >= imgProp->numImages)
 	{
-		LOGF(_T("GetPropertyImageID() error; property name \"%s\", JSON index %hu, has %hu images, but reading image index %hu."),
+		LOGF(_T("GetPropertyImageID() error; property name \"%s\", JSON index %hu, has %hu images, but reading image index %hu.\n"),
 			UTF8ToTString(data->ReadPropName()).c_str(), data->propJSONIndex, imgProp->numImages, imgIndex);
 		return UINT16_MAX;
 	}
@@ -3515,7 +3524,7 @@ std::uint16_t DarkEdif::Properties::Internal_GetPropertyNumImages(const Properti
 		return UINT16_MAX;
 	if (data->propTypeID != Edif::Properties::IDs::PROPTYPE_IMAGELIST)
 	{
-		LOGF(_T("GetPropertyNumImages() error; property name \"%s\", JSON ID %d is not an image list."),
+		LOGF(_T("GetPropertyNumImages() error; property name \"%s\", JSON ID %d is not an image list.\n"),
 			UTF8ToTString(data->ReadPropName()).c_str(), data->propJSONIndex);
 		return UINT16_MAX;
 	}
@@ -3695,7 +3704,7 @@ std::uint16_t DarkEdif::Properties::PropJSONIdxFromName(const TCHAR * func, cons
 		data = data->Next();
 	}
 
-	LOGF(_T("%s() error; property name \"%s\" does not exist."),
+	LOGF(_T("%s() error; property name \"%s\" does not exist.\n"),
 		func, UTF8ToTString(propName).c_str());
 	return UINT16_MAX;
 }
@@ -4438,7 +4447,7 @@ BOOL DarkEdif::DLL::DLL_EditProp(mv* mV, EDITDATA*& edPtr, unsigned int PropID)
 
 			return TRUE;
 		}
-	} // Edit Button for sets 
+	} // Edit Button for sets
 
 	return FALSE;
 }
@@ -4678,7 +4687,7 @@ void DarkEdif::DLL::GeneratePropDataFromJSON()
 				continue;
 			}
 			// Reused property name is not allowed
-			else 
+			else
 			{
 				bool ok = true;
 				for (std::size_t j = 0; j < i; ++j)
@@ -4855,7 +4864,7 @@ void DarkEdif::DLL::GeneratePropDataFromJSON()
 				if (presetList.type == json_type::json_array && presetList.u.array.length > 0)
 				{
 					int* const predefSizes = new int[(presetList.u.array.length + 1) * 2];
-					
+
 					for (unsigned int index = 0; index < presetList.u.array.length; ++index)
 					{
 						const json_value& sizeEntry = presetList[index];
@@ -5022,23 +5031,23 @@ std::unique_ptr<LOGFONTW> DarkEdif::EditDataFont::GetWindowsLogFontW() const {
 
 void DarkEdif::EditDataFont::SetWindowsLogFont(const LOGFONT * const fnt) {
 	if (!fnt)
-		return LOGF(_T("Font cannot be null."));
+		return LOGF(_T("Font cannot be null.\n"));
 	if (memcpy_s(&height, offsetof(DarkEdif::EditDataFont, fontNameU8), &fnt->lfHeight, sizeof(LOGFONT) - sizeof(LOGFONT::lfFaceName)))
-		LOGE(_T("Couldn't copy LOGFONT data -> EditDataFont, error %d."), errno);
+		LOGE(_T("Couldn't copy LOGFONT data -> EditDataFont, error %d.\n"), errno);
 	this->SetFontName(fnt->lfFaceName); // calls UpdateLogFont
 }
 void DarkEdif::EditDataFont::SetWindowsLogFontA(const LOGFONTA * const fnt) {
 	if (!fnt)
-		return LOGF(_T("Font cannot be null."));
+		return LOGF(_T("Font cannot be null.\n"));
 	if (memcpy_s(&height, offsetof(DarkEdif::EditDataFont, fontNameU8), &fnt->lfHeight, sizeof(LOGFONT) - sizeof(LOGFONT::lfFaceName)))
-		LOGE(_T("Couldn't copy LOGFONTA data -> EditDataFont, error %d."), errno);
+		LOGE(_T("Couldn't copy LOGFONTA data -> EditDataFont, error %d.\n"), errno);
 	this->SetFontName(ANSIToTString(fnt->lfFaceName));
 }
 void DarkEdif::EditDataFont::SetWindowsLogFontW(const LOGFONTW * const fnt) {
 	if (!fnt)
-		return LOGF(_T("Font cannot be null."));
+		return LOGF(_T("Font cannot be null.\n"));
 	if (memcpy_s(&height, offsetof(DarkEdif::EditDataFont, fontNameU8), &fnt->lfHeight, sizeof(LOGFONT) - sizeof(LOGFONT::lfFaceName)))
-		LOGE(_T("Couldn't copy LOGFONTW data -> EditDataFont, error %d."), errno);
+		LOGE(_T("Couldn't copy LOGFONTW data -> EditDataFont, error %d.\n"), errno);
 	this->SetFontName(WideToTString(fnt->lfFaceName));
 }
 
@@ -5111,7 +5120,7 @@ void DarkEdif::EditDataFont::SetFusionTextAlignment(TextCapacity textAlign, bool
 	// dtFlags |= (textAlign & TextCapacity::Left) != TextCapacity::None ? DT_LEFT : 0; // no-op
 	dtFlags |= (textAlign & TextCapacity::Right) != TextCapacity::None ? DT_RIGHT : 0;
 	dtFlags |= (textAlign & TextCapacity::HCenter) != TextCapacity::None ? DT_CENTER : 0;
-	
+
 	// dtFlags |= (textAlign & TextCapacity::Top) != TextCapacity::None ? DT_TOP : 0; // no-op
 	dtFlags |= (textAlign & TextCapacity::VCenter) != TextCapacity::None ? DT_VCENTER | singleLine : 0;
 	dtFlags |= (textAlign & TextCapacity::Bottom) != TextCapacity::None ? DT_BOTTOM | singleLine : 0;
@@ -5417,7 +5426,7 @@ std::tstring DarkEdif::FontInfoMultiPlat::GetActualFontName() {
 	}
 
 	// TODO: It is not obvious whether GetTextFace ignores thread locale in favour of user default locale.
-	// 
+	//
 	// PRIMARYLANGID(GetUserDefaultLangID()) != LANG_ENGLISH
 	LCID origLCID = GetThreadLocale();
 	SetThreadLocale(MAKELCID(LGRPID_WESTERN_EUROPE, SORT_DEFAULT));
@@ -5913,12 +5922,106 @@ void DarkEdif::BreakIfDebuggerAttached()
 {
 	raise(SIGINT);
 }
+
+void DarkEdif::SetDataBreakpoint(const void * memory, std::size_t size, DataBreakpointType dbt /* = DataBreakpointType::Write */)
+{
+	// Too Java-ridden.
+	LOGE(_T("SetDataBreakpoint not possible on Android.\n"));
+	(void)memory;
+	(void)size;
+	(void)dbt;
+	return;
+}
+
 #elif defined(_WIN32)
 
 void DarkEdif::BreakIfDebuggerAttached()
 {
 	if (IsDebuggerPresent())
 		DebugBreak();
+}
+
+void DarkEdif::SetDataBreakpoint(const void* memory, std::size_t size, DataBreakpointType dbt /* = DataBreakpointType::Write */)
+{
+	if (!memory || (unsigned long)memory > 0x80000000UL)
+		LOGF(_T("Invalid data breakpoint set: ptr is 0x%p.\n"), memory);
+
+	// I saw a note that negative addresses can only be set from a driver? Might be folklore.
+#ifndef _WIN64
+	if ((unsigned long)memory > 0x80000000UL)
+		LOGW(_T("Invalid data breakpoint set: ptr is 0x%p.\n"), memory);
+#endif
+	// Sizes allowed: 1, 2, 4, 8
+	if (size == 0 || size == 3 || (size >= 5 && size <= 7) || size > 8)
+		LOGF(_T("Invalid data breakpoint set: size is %zu. Sizes allowed: 1, 2, 4, 8. Combine breakpoints if needed.\n"), size);
+
+	// Data breakpoints are sometimes used for anti-DRM or cheating, like most debugger-stuff.
+	// Using it in release builds is probably unintended by ext dev and an accidental overlap from their debug code.
+#ifndef _DEBUG
+	LOGW(_T("It is not recommended to use data breakpoints in Release builds.\n"));
+#endif
+
+	// Originally inspired from hwbrk set on CodeProject.
+	// Now adapted from https://github.com/rad9800/hwbp4mw/blob/main/HWBPP.cpp
+	// We don't monitor access from every thread here; this may be possible in hwbpp.cpp.
+	// The original, less hackerman code spawned a thread to set the current thread's debug registers;
+	// that may be a requirement or might be over-engineering.
+	// Also note https://stackoverflow.com/a/40820763 has useful info
+	static thread_local std::uint8_t numBreakpoints = 0;
+
+	if (numBreakpoints > 4)
+		return LOGF(_T("Setting up a data breakpoint failed: max of 4 breakpoints.\n"));
+
+	DWORD curThreadID = GetCurrentThreadId();
+	bool good = false;
+
+	// Context may be clobbered between instructions if we read  it within same thread, so spawn another one.
+	std::thread setter([&good, memory, curThreadID, size, dbt](int pos)
+	{
+		CONTEXT context = {};
+		context.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+		HANDLE callerThread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE, curThreadID);
+		if (!callerThread)
+			return LOGF(_T("Setting up a data breakpoint failed: couldn't get thread access, error %u.\n"), GetLastError());
+
+		if (SuspendThread(callerThread) == -1)
+			return LOGF(_T("Setting up a data breakpoint failed: couldn't suspend original thread, error %u.\n"), GetLastError());
+
+		if (!GetThreadContext(callerThread, &context))
+		{
+			ResumeThread(callerThread);
+			return LOGF(_T("Setting up a data breakpoint failed: couldn't get thread context, error %u.\n"), GetLastError());
+		}
+
+		// This weird size conversion is correct, I've tested. Odd, however.
+		const int siz = size == 1 ? 0 : size == 2 ? 1 : size == 4 ? 3 : /* size == 8 */ 2;
+
+		//if constexpr (create) {
+		(&context.Dr0)[pos] = (DWORD)(long)memory;
+
+		const auto SetBits = [](DWORD_PTR* dw, int lowBit, int bits, int newValue) {
+			DWORD_PTR mask = (1 << bits) - 1;
+			*dw = (*dw & ~(mask << lowBit)) | (newValue << lowBit);
+		};
+		SetBits(&context.Dr7, 16 + pos * 4, 2, (int)dbt);
+		SetBits(&context.Dr7, 18 + pos * 4, 2, siz);
+		SetBits(&context.Dr7, pos * 2, 1, 1);
+		/* else remove:
+			if ((&context.Dr0)[pos] == address) {
+
+			}
+		}*/
+		BOOL ret = SetThreadContext(callerThread, &context);
+		ResumeThread(callerThread);
+		CloseHandle(callerThread);
+		if (!ret)
+			return LOGF(_T("Setting up a data breakpoint failed: couldn't set thread context, error %u.\n"), GetLastError());
+		good = true;
+	}, numBreakpoints);
+	setter.join();
+
+	if (good)
+		++numBreakpoints;
 }
 
 [[noreturn]]
@@ -5929,14 +6032,50 @@ void DarkEdif::LOGFInternal(PrintFHintInside const TCHAR * x, ...)
 	va_start(va, x);
 	_vstprintf_s(buf, std::size(buf), x, va);
 	va_end(va);
+	DarkEdif::Log(DARKEDIF_LOG_FATAL, _T("%s"), buf);
 	DarkEdif::MsgBox::Error(_T("Fatal error"), _T("%s"), buf);
 	std::abort();
 }
 #else // APPLE
 
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <sys/sysctl.h>
+
 void DarkEdif::BreakIfDebuggerAttached()
 {
-	__builtin_trap();
+	// Taken from https://stackoverflow.com/a/27254064
+	static bool debuggerIsAttached = false;
+
+	static dispatch_once_t debuggerPredicate;
+	dispatch_once(&debuggerPredicate, ^{
+		struct kinfo_proc info;
+		size_t info_size = sizeof(info);
+		int name[4] { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() }; // from unistd.h, included by Foundation
+
+		if (sysctl(name, 4, &info, &info_size, NULL, 0) == -1)
+		{
+			LOGE("DarkEdif::BreakIfDebuggerAttached() couldn't call sysctl(): %s. Assuming true.", strerror(errno));
+			debuggerIsAttached = true;
+		}
+
+		if (!debuggerIsAttached && (info.kp_proc.p_flag & P_TRACED) != 0)
+			debuggerIsAttached = true;
+	});
+
+	if (debuggerIsAttached)
+		__builtin_trap();
+}
+
+void DarkEdif::SetDataBreakpoint(const void* memory, std::size_t size, DataBreakpointType dbt /* = DataBreakpointType::Write */)
+{
+	// Too locked down.
+	LOGE(_T("SetDataBreakpoint not possible on iOS/Mac.\n"));
+	(void)memory;
+	(void)size;
+	(void)dbt;
+	return;
 }
 
 int DarkEdif::MessageBoxA(WindowHandleType hwnd, const TCHAR * text, const TCHAR * caption, int iconAndButtons)
@@ -7632,7 +7771,7 @@ void DarkEdif::OutputDebugStringAInternal(const char * debugString)
 		debugStringSafe.resize(debugStringSafe.size() - 1U);
 #endif
 
-	LOGI("OutputDebugStringA: %s.", debugStringSafe.c_str());
+	LOGI("OutputDebugStringA: %s.\n", debugStringSafe.c_str());
 }
 #endif // Android, iOS, and DarkEdif log level INFO or lower level
 

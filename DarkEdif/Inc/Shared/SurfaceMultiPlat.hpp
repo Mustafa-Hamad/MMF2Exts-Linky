@@ -7,6 +7,13 @@ namespace DarkEdif
 	class Surface;
 }
 #ifdef _WIN32
+// If building an ANSI ext, we're expecting to be going for MMF2, so use cSurface 2.0 functions for drawing only.
+// This can be overriden by defining FUSION_2_0_DRAWING_ONLY=0.
+#if !defined(_UNICODE) && !defined(FUSION_2_0_DRAWING_ONLY)
+#define FUSION_2_0_DRAWING_ONLY 1
+#endif
+
+// The idea is we avoid the ext dev using cSurface directly.
 #define SURFACE_MULTI_PLAT_INCLUDING_WINSURF
 #include "Windows/WindowsSurface.hpp"
 #endif
@@ -54,7 +61,7 @@ namespace DarkEdif
 		 * @param allowNeg If true, allows x and y to be negative. */
 		Rect(const Point & p1, const Point& p2,
 			const bool allowNeg = false);
-		
+
 		/* Creates rectangle from (x,y) to the bottom right (x + w, y + h) passed.
 		 * x and y must be positive unless last param is true.
 		 * @param allowNeg If true, allows x and y to be negative. */
@@ -250,7 +257,7 @@ namespace DarkEdif
 	protected:
 		friend Surface;
 		SurfaceFill(FillType);
-	}; 
+	};
 	struct FilledShape {
 		std::uint16_t borderSize;	// Border
 		std::uint32_t borderColor;
@@ -514,7 +521,7 @@ namespace DarkEdif
 #endif
 
 		// Creates a surface tied to the main Fusion window, allowing you to read or write directly.
-		static Surface CreateFromMainWindow(RunHeader* rhPtr);
+		static Surface& CreateFromMainWindow(RunHeader* rhPtr);
 
 		/* Creates a surface from filepath, with optional HWA, text or bitmap functionality, creating an image to back it.
 		 * If neither text or bitmap is enabled, will allow the surface to be hardware-backed.
@@ -562,7 +569,7 @@ namespace DarkEdif
 		// ======================
 		// Raster operations
 		// ======================
-		
+
 		// Locks the raw memory of the Surface, and returns an accessor for it.
 		// Once the accessor goes out of scope, the Surface is unlocked.
 		Holder<std::uint8_t*, Surface> GetPixelBytes();
@@ -630,7 +637,7 @@ namespace DarkEdif
 		 * @param fmt	   Image format; attempts to read from file path. Defaults to PNG if it cannot match.
 		 * @param quality  If JPEG format, the quality to write, from 1-100 */
 		bool SaveImageToFilePath(const std::tstring& filename, ImageFileFormat fmt = ImageFileFormat::Unset, size_t quality = 100);
-		
+
 		// ======================
 		// Pixel functions
 		// ======================
@@ -659,7 +666,7 @@ namespace DarkEdif
 		 * @remarks If includeTransparent is true, but blitOptions excludes CopyAlpha,
 		 *			pixels from source that should have been transparent are changed to
 		 *  		transparent colour of destination. */
-		bool CopySection(Rect srcRect, Surface & dest, Rect destRect, 
+		bool CopySection(Rect srcRect, Surface & dest, Rect destRect,
 			bool transparent = true,
 			BlitOptions blitFlags = BlitOptions::CopyAlpha,
 			BlitOperation blitOp = BlitOperation::Copy,

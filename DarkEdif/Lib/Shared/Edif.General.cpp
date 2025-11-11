@@ -153,12 +153,10 @@ struct ForbiddenInternals2 {
 
 // Called every time the extension is being created from nothing.
 // Default property contents should be loaded from JSON.
+// This is also called in Runtime builds, presumably for Is Unicode/HWA lookup.
 std::int16_t FusionAPI GetRunObjectInfos(mv* mV, kpxRunInfos* infoPtr)
 {
 #pragma DllExportHint
-#if RuntimeBuild
-	DarkEdif::MsgBox::Info(_T("!!"), _T("GetRunObjectInfos() called.\n"));
-#endif
 	return ForbiddenInternals2::GetRunObjectInfos2(mV, infoPtr);
 }
 
@@ -1098,7 +1096,7 @@ ProjectFunc void PROJ_FUNC_GEN(PROJECT_TARGET_NAME_UNDERSCORES_RAW, _displayRunO
 }
 
 // Android does not implement GetRunObjectSurface
-#ifndef __ANDROID__  
+#ifndef __ANDROID__
 
 #ifdef _WIN32
 cSurface* FusionAPI GetRunObjectSurface(RUNDATA * rdPtr)
@@ -1129,12 +1127,12 @@ ProjectFunc void * PROJ_FUNC_GEN(PROJECT_TARGET_NAME_UNDERSCORES_RAW, _getRunObj
 	intSurf = ForbiddenInternals::GetInternalSurface(&*ext->surf);
 #else // manual
 	LOGV(_T("GetRunObjectSurface running.\n"));
-	
+
 	auto surf = ext->GetDisplaySurface();
 	if (surf)
 		intSurf = ForbiddenInternals::GetInternalSurface(surf);
 	else // null surface delegates to DisplayRunObject
-		LOGV(_T("GetRunObjectSurface got a null surface, returning null."));
+		LOGV(_T("GetRunObjectSurface got a null surface, returning null.\n"));
 #endif
 #ifdef _WIN32
 	return (cSurface *)intSurf;

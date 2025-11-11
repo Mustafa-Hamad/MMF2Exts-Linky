@@ -349,6 +349,11 @@ DarkEdif::SurfaceFill DarkEdif::SurfaceFill::Mosaic(Surface* surf, Rect rect)
 	return setting;
 }
 
+#ifdef _WIN32
+static DarkEdif::Surface* mainWindow = nullptr;
+static D3DSURFINFO drivInfo = {};
+#endif
+
 
 void DarkEdif::Surface::UnlockMain(DarkEdif::Surface* surf, std::uint8_t*)
 {
@@ -399,7 +404,6 @@ int DarkEdif::Surface::GetPitch() const {
 	return INT32_MIN;
 #endif
 }
-
 
 static DarkEdif::Surface::ImageFileFormat FileExtensionToImageFormat(const std::tstring fileName)
 {
@@ -589,13 +593,6 @@ bool DarkEdif::Surface::Windows_SaveImageToBMPMemory(LPBITMAPINFO pBmi, std::uin
 {
 	return surf->SaveImage(pBmi, pBits) != FALSE;
 }
-enum {
-	LOCKIMAGE_READBLITONLY,
-	LOCKIMAGE_ALLREADACCESS,
-	LOCKIMAGE_HWACOMPATIBLE
-};
-FusionAPIImport BOOL FusionAPI LockImageSurface(void*, DWORD hImage, cSurface& cs, int flags = LOCKIMAGE_READBLITONLY);
-FusionAPIImport void FusionAPI UnlockImageSurface(cSurface& cs);
 
 #endif // _WIN32
 
@@ -604,7 +601,7 @@ std::unique_ptr<DarkEdif::Surface> DarkEdif::Surface::CreateFromImageBankID(RunH
 #ifdef _WIN32
 	cSurface fake;
 	if (!LockImageSurface(rhPtr->rhIdAppli, imgID, fake,
-		!needBitmapFuncs && !needTextFuncs ? LOCKIMAGE_HWACOMPATIBLE : LOCKIMAGE_READBLITONLY))
+		(int)(!needBitmapFuncs && !needTextFuncs ? LockImageSurfaceMode::HWACompatible : LockImageSurfaceMode::ReadBlitOnly)))
 	{
 		return LOGE(_T("DarkEdif::Surface error: Couldn't lock image surface to load image ID %hu.\n"), imgID), nullptr;
 	}
@@ -865,7 +862,7 @@ bool DarkEdif::Surface::SaveImageToFilePath(const std::tstring& file, ImageFileF
 	}
 	// TODO: is pFilter meant to be deleted? CRT suggests no leak
 	pFilter->SetCompressionLevel(-1); // in case old object
-	
+
 	if (ifErr != IF_OK) {
 		return LOGE(_T("%sFailed to save image to file \"%s\" with format %d; image error %d.\n"),
 			debugID, file.c_str(), (int)fmt, ifErr), false;
@@ -880,7 +877,7 @@ bool DarkEdif::Surface::SaveImageToFilePath(const std::tstring& file, ImageFileF
 		return LOGE(_T("%sFailed to write to image file \"%s\", got error %d: %s.\n"),
 			debugID, file.c_str(), err, errStr), false;
 	}
-		
+
 	const bool ret = SaveImageToFileHandle(fil, fmt, quality);
 	if (fclose(fil))
 	{
@@ -902,7 +899,7 @@ DarkEdif::Surface::ImageFileFormat DarkEdif::Surface::LoadImageFromFilePath(cons
 	FILE* fil = fopen(file.c_str(), "rb");
 	int err = errno;
 #endif
-		
+
 	if (fil == NULL)
 	{
 #ifdef _WIN32
@@ -1021,7 +1018,7 @@ DarkEdif::Surface::Surface(RunHeader * rhPtr, cSurface* surf, bool isFrameSurfac
 	{
 		const SurfaceType surfType = (SurfaceType)surf->GetType();
 		if ((int)surfType < 0 || surfType >= SurfaceType::Max)
-			LOGF(_T("%sUnexpected surface type %d."), debugID, (int)surfType);
+			LOGF(_T("%sUnexpected surface type %d.\n"), debugID, (int)surfType);
 		// Memory-backed buffer (CPU based) is needed to do most geometric drawing
 		hasGeometryCapacity = surfType <= SurfaceType::Memory_PermanentDeviceContext;
 		// A device context (DC) is needed to draw text
@@ -1196,6 +1193,35 @@ bool DarkEdif::Surface::GetAndResetAltered()
 	return true;
 }
 
+
+#if DARKEDIF_DISPLAY_TYPE > DARKEDIF_DISPLAY_ANIMATIONS && defined(_WIN32)
+void DarkEdif::Surface::Internal_WinZoneHack()
+{
+	static std::unique_ptr<Rect> lastZone;
+	// Software display mode does not redraw on screen automatically.
+	if (ext->Runtime.GetAppDisplayMode() < SurfaceDriver::Direct3D8)
+	{
+		WinAddZone(Edif::SDK->mV->IdEditWin, &ext->rdPtr->rHo.hoRect);
+#if 0
+		// If scroll dependent, account for scroll offset in WindowX/Y
+		const bool scrollDependent = (ext->rdPtr->rHo.hoOEFlags & OEFLAGS::SCROLLING_INDEPENDENT) == OEFLAGS::NONE;
+		Rect curZone(
+			Point(
+				ext->rdPtr->rHo.hoX - (scrollDependent ? ext->rhPtr->rhWindowX : 0) - ext->rdPtr->rHo.hoImgXSpot,
+				ext->rdPtr->rHo.hoY - (scrollDependent ? ext->rhPtr->rhWindowY : 0) - ext->rdPtr->rHo.hoImgYSpot, true),
+			GetSize(), true);
+
+		WinAddZone(Edif::SDK->mV->IdEditWin, (RECT*)&curZone);
+		//if (lastZone)
+		//	WinAddZone(Edif::SDK->mV->IdEditWin, (RECT*)lastZone.get());
+		//lastZone = std::make_unique<Rect>(curZone);
+#endif
+	}
+	if (surf->IsTransparent())
+		LOGW(_T("Your ext display surface is entirely transparent!\n"));
+}
+#endif // _WIN32
+
 #if DARKEDIF_DISPLAY_TYPE == DARKEDIF_DISPLAY_SIMPLE
 void DarkEdif::Surface::SetAsExtensionDisplay(Extension* ext)
 {
@@ -1215,35 +1241,6 @@ void DarkEdif::Surface::SetAsExtensionDisplay(Extension* ext)
 	const Size imgSize = GetSize();
 	ext->rdPtr->get_rHo()->SetSize(imgSize.width, imgSize.height);
 }
-
-#ifdef _WIN32
-void DarkEdif::Surface::Internal_WinZoneHack()
-{
-	static std::unique_ptr<Rect> lastZone;
-	// Software display mode does not redraw on screen automatically.
-	if (ext->Runtime.GetAppDisplayMode() < SurfaceDriver::Direct3D8)
-	{
-		WinAddZone(Edif::SDK->mV->IdEditWin, &ext->rdPtr->rHo.hoRect);
-#if 0
-		// If scroll dependent, account for scroll offset in WindowX/Y
-		const bool scrollDependent = (ext->rdPtr->rHo.hoOEFlags & OEFLAGS::SCROLLING_INDEPENDENT) == OEFLAGS::NONE;
-		Rect curZone(
-			Point(
-				ext->rdPtr->rHo.X - (scrollDependent ? ext->rhPtr->WindowX : 0) - ext->rdPtr->rHo.ImgXSpot,
-				ext->rdPtr->rHo.Y - (scrollDependent ? ext->rhPtr->WindowY : 0) - ext->rdPtr->rHo.ImgYSpot, true),
-			GetSize(), true);
-		
-		WinAddZone(Edif::SDK->mV->IdEditWin, (RECT*)&curZone);
-		//if (lastZone)
-		//	WinAddZone(Edif::SDK->mV->IdEditWin, (RECT*)lastZone.get());
-		//lastZone = std::make_unique<Rect>(curZone);
-#endif
-	}
-	if (surf->IsTransparent())
-		LOGW(_T("Your ext display surface is entirely transparent!\n"));
-}
-#endif // _WIN32
-
 void DarkEdif::Surface::BlitToFrameWithExtEffects(Point pt /* = Point {}*/)
 {
 	assert(ext);
@@ -1312,7 +1309,7 @@ void DarkEdif::Surface::BlitToFrameWithExtEffects(Point pt /* = Point {}*/)
 	// Windows does not have a hotspot param, merge it into pt
 	pt.x += hotSpot.x;
 	pt.y += hotSpot.y;
-	
+
 	// Software display mode does not redraw on screen automatically.
 	if (ext->Runtime.GetAppDisplayMode() < SurfaceDriver::Direct3D8)
 	{
@@ -1340,7 +1337,7 @@ void DarkEdif::Surface::BlitToFrameWithExtEffects(Point pt /* = Point {}*/)
 		Point center = Rect(pt, srcSize).GetCenter();
 		center.x += hotSpot.x;
 		center.y += hotSpot.y;
-		
+
 		surf->BlitEx(*frameSurf,
 			// Dest position
 			static_cast<float>(pt.x),
@@ -1443,7 +1440,7 @@ void DarkEdif::Surface::CreateFromWindow(HWND hWnd, bool IncludeFrame)
 
 	// TODO: error details?
 	surf->Create(hWnd, IncludeFrame);
-	
+
 	if (surf->IsValid())
 		return LOGE(_T("Cannot create from window, unknown error.\n"));
 }
@@ -1479,13 +1476,50 @@ DarkEdif::Surface DarkEdif::Surface::CreateFromFrameEditorWindow()
 }
 #endif
 
-DarkEdif::Surface DarkEdif::Surface::CreateFromMainWindow(RunHeader* rhPtr)
+DarkEdif::Surface& DarkEdif::Surface::CreateFromMainWindow(RunHeader* rhPtr)
 {
 #ifdef _WIN32
-	cSurface * newSurf = WinGetSurface((int)Edif::SDK->mV->IdEditWin);
-	if (!newSurf || !newSurf->IsValid())
-		LOGF(_T("Cannot create Surface from main window, unknown error.\n")); // noreturn, save me
-	return Surface(rhPtr, newSurf, true);
+	if (!mainWindow)
+	{
+		cSurface* newSurf = WinGetSurface((int)Edif::SDK->mV->IdEditWin);
+		if (!newSurf || !newSurf->IsValid())
+			LOGF(_T("Cannot create Surface from main window, unknown error.\n")); // noreturn, save me
+		mainWindow = new Surface(rhPtr, newSurf, true);
+
+		SurfaceDriver driv = mainWindow->GetDriver();
+		// Standard display mode
+		if (driv >= SurfaceDriver::DIB && driv < SurfaceDriver::Direct3D9)
+		{
+			// Set this so it's not still 0
+			drivInfo.m_lSize = -1;
+			drivInfo.m_nD3DVersion = 1 + (int)driv;
+			// This is mostly limited by RAM, but Windows standard display is very slow,
+			// so we'll set a smaller limit of 4096 for sanity.
+			drivInfo.m_dwMaxTextureWidth = drivInfo.m_dwMaxTextureHeight = 4096;
+		}
+		// Note D3D9 enum value is before D3D8
+		else if (driv >= SurfaceDriver::Direct3D9)
+		{
+			DWORD size = newSurf->GetDriverInfo(NULL);
+			if (size > sizeof(drivInfo))
+				LOGF(_T("Unexpected driver info size %u.\n"), size);
+			drivInfo.m_lSize = size;
+			// DDHAL_GETDRIVERINFODATA
+			newSurf->GetDriverInfo(&drivInfo);
+			LOGI(_T("Got Direct3D driver info: size %u (expected %u). D3D version %i. Context ptr: 0x%p. ")
+				"Device ptr: 0x%p. Texture ptr: 0x%p. Pixel Shader version: %i. Vertex Shader version: %i. "
+				"Max Texture Width: %i. Max Texture Height: %i. Render Target Texture: 0x%p. Render Target View: 0x%p. "
+				"Render Target Context: 0x%p.\n",
+				drivInfo.m_lSize, size, drivInfo.m_nD3DVersion, drivInfo.m_pD3DContext,
+				drivInfo.m_pD3DDevice, drivInfo.m_ppD3DTexture, drivInfo.m_dwPixelShaderVersion, drivInfo.m_dwVertexShaderVersion,
+				drivInfo.m_dwMaxTextureWidth, drivInfo.m_dwMaxTextureHeight, drivInfo.m_ppD3D11RenderTargetTexture, drivInfo.m_ppD3D11RenderTargetView,
+				drivInfo.m_txtContext
+			);
+		}
+		else
+			LOGF(_T("Unexpected frame window driver %i.\n"), (int)driv);
+	}
+	return *mainWindow;
 #else
 	LOGF(_T("Not implemented on this platform\n"));
 	return Surface(rhPtr, false, false, 0, 0, false);
@@ -1549,9 +1583,14 @@ DarkEdif::Surface::Surface(RunHeader* const rhPtr, bool needBitmapFuncs, bool ne
 		LOGF(_T("Image being allocated of invalid size %s, aborting.\n"), Size{ (int) width, (int)height }.str().c_str());
 
 #ifdef _WIN32
+	// 24-bit depth even for alpha, as Fusion does not use alpha channel in an ARGB surface,
+	// but creates two surfaces, RGB and A.
+	// Direct3D docs refer to this as B8G8R8 format.
+	int depth = 24;
+
 	SurfaceType st;
 	SurfaceDriver sd = SurfaceDriver::Bitmap;
-	if (needTextFuncs && false)
+	if (needTextFuncs)
 		st = SurfaceType::Memory_DeviceContext;
 	else if (needBitmapFuncs)
 		st = SurfaceType::Memory;
@@ -1560,13 +1599,32 @@ DarkEdif::Surface::Surface(RunHeader* const rhPtr, bool needBitmapFuncs, bool ne
 		st = SurfaceType::HWA_ManagedTexture;
 		cSurface* main = WinGetSurface((int)Edif::SDK->mV->IdEditWin);
 		sd = (SurfaceDriver)main->GetDriver();
+
+		// Although Fusion doesn't use the alpha of 32-bit ARGB surfaces,
+		// 24-bit depth surfaces cannot be made in Direct3D, so we must upgrade.
+		// Direct3D docs refer to this as X8B8G8R8 format.
+
+		// Note D3D9 enum value is before D3D8
+		if (sd >= SurfaceDriver::Direct3D9)
+			depth = 32;
+		// Standard display mode, DirectDraw, does not do HWA textures
+		else if (sd == SurfaceDriver::DIB)
+			st = SurfaceType::Memory;
+
+		// If set, check texture size, if not, warn we can't
+		if (!drivInfo.m_dwMaxTextureWidth)
+		{
+			LOGW(_T("Warning: Creating a HWA surface of size %s. Unsure what max D3D texture size is.\n"),
+				Size { (int)width, (int)height }.str().c_str());
+		}
+		else if (width > (std::size_t)drivInfo.m_dwMaxTextureWidth || height > (std::size_t)drivInfo.m_dwMaxTextureHeight)
+		{
+			LOGF(_T("Creating a surface too large. Your GPU is limited to %s, attempting to allocate %s. Lower the graphics quality.\n"),
+				Size { drivInfo.m_dwMaxTextureWidth, drivInfo.m_dwMaxTextureHeight }.str().c_str(), Size { (int)width, (int)height }.str().c_str());
+		}
 	}
 
-	if (width == 0 || height == 0)
-		LOGF(_T("Invalid surface size.\n"));
-
 	cSurface* proto;
-	const int depth = 24;
 	if (GetSurfacePrototype(&proto, depth, (int)st, (int)sd) == FALSE)
 		LOGF(_T("Couldn't get surface prototype (%d, %d, %d).\n"), depth, (int)st, (int)sd);
 	surf = new cSurface();
@@ -1578,6 +1636,7 @@ DarkEdif::Surface::Surface(RunHeader* const rhPtr, bool needBitmapFuncs, bool ne
 		surf->SetTransparentColor(RGB(255, 0, 255)); // magneta by default
 	else
 	{
+		// Creates either an 8-bit array, or Direct3D ii format surface. Alpha, 8 bits per pixel.
 		surf->CreateAlpha();
 		cSurface * alpha = surf->GetAlphaSurface();
 		if (!alpha || !alpha->Fill((COLORREF)0xFFFFFFFF))
@@ -1594,7 +1653,7 @@ DarkEdif::Surface::Surface(RunHeader* const rhPtr, bool needBitmapFuncs, bool ne
 	else if (depth == 32)
 		format = PixelFormat::XBGR;
 	else
-		LOGF(_T("Unrecognised pixel depth"));
+		LOGF(_T("Unrecognized pixel depth %i\n"), depth);
 	// TODO: We can support unmanaged textures and save RAM, if we implement
 	// the lost device callback and reload the image. For now, let's leave it.
 #elif defined(__ANDROID__)
@@ -1701,7 +1760,7 @@ bool DarkEdif::Surface::Clone(Surface& dest, CloneType type)
 		return LOGE(_T("Cannot clone surface, destination has open DC.\n")), false;
 	if (dcIsOpen)
 		return LOGE(_T("Cannot clone surface, source has open DC.\n")), false;
-	
+
 	if (type == CloneType::DriverTypeOnly)
 	{
 #ifdef _WIN32
@@ -1728,7 +1787,7 @@ bool DarkEdif::Surface::Clone(Surface& dest, CloneType type)
 		LOGF(_T("Cannot clone surface, not implemented on this platform\n"));
 #endif
 	}
-	
+
 #ifdef _WIN32
 	if (surf->Blit(*dest.surf) == FALSE)
 		return LOGE(_T("%sCloning surface failed, strangely.\n"), debugID), false;
@@ -1757,10 +1816,12 @@ static bool NoAlpha(const TCHAR* const func, const std::uint32_t color)
 std::tstring DarkEdif::Surface::Describe() const {
 
 	static const TCHAR* const formatStr[] = {
+		// -2, -1
 		_T("Monochrome (1bpp)"), _T("Alpha (1bpp)"),
+		// 0
 		_T("Unset (?bpp)"),
 		_T("RGBA (32bpp)"), _T("RGBX (32bpp)"), _T("RGB (24bpp)"),
-		_T("BGR (24bpp)"), _T("BGRA (32bpp)"), _T("ABGR (32bpp)") };
+		_T("BGR (24bpp)"), _T("XBGR (32bpp)"),  _T("BGRA (32bpp)"), _T("ABGR (32bpp)") };
 	const auto RoundUpToNearestMultipleOf = [](std::size_t from, std::size_t multi) {
 		return (std::size_t)((((int)from) + ((int)multi) - 1) & (-(int)multi));
 	};
@@ -1776,7 +1837,7 @@ std::tstring DarkEdif::Surface::Describe() const {
 	}
 	else if (format == PixelFormat::RGB || format == PixelFormat::BGR)
 		sizeBytes *= GetHeight() * 3;
-	else if (format == PixelFormat::RGBX || format == PixelFormat::RGBA ||
+	else if (format == PixelFormat::XBGR || format == PixelFormat::RGBX || format == PixelFormat::RGBA ||
 			format == PixelFormat::ABGR || format == PixelFormat::RGBA)
 		sizeBytes *= GetHeight() * 4;
 	else
@@ -1804,6 +1865,8 @@ std::tstring DarkEdif::Surface::Describe() const {
 	}
 	static_assert((int)PixelFormat::Monochrome == -2);
 	result << _T(' ') << formatStr[((std::size_t)format) + 2]; // Monochrome is -2
+	if (HasAlpha() && (format == PixelFormat::XBGR || format == PixelFormat::RGBX))
+		result << _T("+A (8bpp)"sv);
 	return result.str();
 }
 
@@ -1946,6 +2009,10 @@ std::tstring DarkEdif::Surface::ColorToString(std::uint32_t c, bool alpha /* = f
 
 DarkEdif::Surface::~Surface()
 {
+#if defined(_WIN32) && defined(_DEBUG)
+	if (*(std::uint8_t*)&isLocked == 0xDD)
+		LOGF(_T("Invalid surface 0x%p, already freed.\n"), this);
+#endif
 	if (isLocked)
 		LOGF(_T("%sDestroying surface at %s, but has locked buffer.\n"), debugID, Describe().c_str());
 	if (isLockedAlpha)
@@ -1959,6 +2026,8 @@ DarkEdif::Surface::~Surface()
 		surf->Delete();
 		delete surf; // DeleteSurface(surf);
 	}
+	LOGV(_T("%sDealloced surface.\n"), debugID);
+	surf = nullptr;
 #elif defined(__ANDROID__)
 	// Should auto-free the global refs and delete the object by GC
 #else
@@ -2485,7 +2554,7 @@ bool DarkEdif::Surface::IsFullyTransparent() const {
 #ifdef _WIN32
 	return surf->IsTransparent() != FALSE;
 #else
-	LOGF(_T("Cannot check fully transparent; not implemented on this platform"));
+	LOGF(_T("Cannot check fully transparent; not implemented on this platform\n"));
 	return false;
 #endif
 }
@@ -2496,11 +2565,11 @@ bool DarkEdif::Surface::ReplaceColor(std::uint32_t newColor, std::uint32_t oldCo
 #ifdef _WIN32
 	if (!surf->ReplaceColor(newColor, oldColor))
 #else
-	LOGF(_T("Cannot replace color; not implemented on this platform"));
+	LOGF(_T("Cannot replace color; not implemented on this platform\n"));
 	if (true)
 #endif
 	{
-		LOGE(_T("%sError replacing color %s with color %s."),
+		LOGE(_T("%sError replacing color %s with color %s.\n"),
 			debugID, ColorToString(oldColor, includeAlpha).c_str(), ColorToString(newColor, includeAlpha).c_str());
 		return false;
 	}
@@ -2525,9 +2594,9 @@ HICON DarkEdif::Surface::Windows_CreateIcon(Size iconSize, std::uint32_t transpC
 	if (transpColor == -1)
 		transpColor = surf->GetTransparentColor();
 	else if (HasAlpha())
-		LOGW(_T("%sGetting surface transparent color when alpha is present - color may be ignored."), debugID);
+		LOGW(_T("%sGetting surface transparent color when alpha is present - color may be ignored.\n"), debugID);
 	if (pHotSpot && !CheckPointContained(*pHotSpot))
-		LOGW(_T("%sCreating icon warning: hot spot position is outside the surface area."), debugID);
+		LOGW(_T("%sCreating icon warning: hot spot position is outside the surface area.\n"), debugID);
 	return surf->CreateIcon(iconSize.width, iconSize.height, transpColor,
 		pHotSpot && pHotSpot->x == 0 && pHotSpot->y == 0 ? nullptr : (POINT *)pHotSpot);
 }

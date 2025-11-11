@@ -20,7 +20,7 @@
 #ifndef ThreadSafeStaticInitIsSafe
 	// The threadsafe init is disabled, or we're using VS 2017, so it's safe.
 	// Or we're targeting Vista+ (WINVER >= 0x0600), threadsafe init works there, so safe too.
-	#if !defined(__cpp_threadsafe_static_init) || _MSC_VER < 1920 || WINVER > 0x0503 
+	#if !defined(__cpp_threadsafe_static_init) || _MSC_VER < 1920 || WINVER > 0x0503
 		#define ThreadSafeStaticInitIsSafe 1
 	#endif
 // We're still targeting XP, and it's VS 2019, why don't we have the define?
@@ -290,16 +290,12 @@ enum_class_is_a_bitmask(TextCapacity);
 #define DARKEDIF_LOG_FATAL 7
 namespace DarkEdif {
 	void Log(int logLevel, PrintFHintInside const TCHAR* msgFormat, ...) PrintFHintAfter(2,3);
-	void LOGF(PrintFHintInside const TCHAR* msgFormat, ...) PrintFHintAfter(1, 2);
+	[[noreturn]] void LOGF(PrintFHintInside const TCHAR* msgFormat, ...) PrintFHintAfter(1, 2);
 }
 
 #ifndef DARKEDIF_LOG_MIN_LEVEL
 	#ifdef _DEBUG
-		#ifdef __ANDROID__
-			#define DARKEDIF_LOG_MIN_LEVEL DARKEDIF_LOG_VERBOSE
-		#else
-			#define DARKEDIF_LOG_MIN_LEVEL DARKEDIF_LOG_VERBOSE
-		#endif
+		#define DARKEDIF_LOG_MIN_LEVEL DARKEDIF_LOG_DEBUG
 	#else
 		#define DARKEDIF_LOG_MIN_LEVEL DARKEDIF_LOG_WARN
 	#endif
@@ -357,7 +353,7 @@ struct extHeader final
 	std::uint32_t extSize,
 				  extMaxSize,
 				  extVersion;			// Version number
-	std::uint32_t extID;				// object's identifier; pointer to ext, null in Android/iOS! 
+	std::uint32_t extID;				// object's identifier; pointer to ext, null in Android/iOS!
 	std::uint32_t extPrivateData;		// private data; was a pointer
 };
 
