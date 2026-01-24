@@ -258,7 +258,8 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 	}
 
 #if EditorBuild
-	if (edPtr->eHeader.extSize < sizeof(EDITDATA) || edPtr->eHeader.extVersion != Extension::Version)
+	// Strangely, ext version is stuck at 2 at runtime. Is it reading it from Lacewing Server?
+	if (edPtr->eHeader.extSize < sizeof(EDITDATA))
 	{
 		DarkEdif::MsgBox::Error(_T("Property size mismatch"), _T("Properties are the wrong size (MFA size %lu, extension size %zu). "
 			"Please re-create the Lacewing Blue Server object in frame, "
@@ -353,7 +354,6 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 	else if (!edPtr->multiThreading)
 		Runtime.Rehandle();
 
-
 	// Set up Fusion debugger (it uses globals, so we have to do it after)
 	// The server could be hosting already if this Extension() is being run after a Fusion frame switch.
 	const auto hostingDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
@@ -362,7 +362,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("Hosting: Not hosting."sv);
 	};
-	FusionDebugger.AddItemToDebugger(hostingDebugItemReader, NULL, 500, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, hostingDebugItemReader, NULL, 500, NULL);
 
 	const auto hostingWebSocketDebugItemReader = [](Extension* ext, std::tstring& writeTo) {
 		if (ext->Srv.websocket->hosting() && ext->Srv.websocket->hosting_secure())
@@ -378,7 +378,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("WebSocket: Not hosting "sv);
 	};
-	FusionDebugger.AddItemToDebugger(hostingWebSocketDebugItemReader, NULL, 500, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, hostingWebSocketDebugItemReader, NULL, 500, NULL);
 
 	const auto clientCountDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->Srv.hosting() || ext->Srv.websocket->hosting() || ext->Srv.websocket->hosting_secure())
@@ -386,7 +386,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("All client count: N/A"sv);
 	};
-	FusionDebugger.AddItemToDebugger(clientCountDebugItemReader, NULL, 500, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, clientCountDebugItemReader, NULL, 500, NULL);
 
 	const auto channelCountDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->Srv.hosting() || ext->Srv.websocket->hosting() || ext->Srv.websocket->hosting_secure())
@@ -394,7 +394,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("All channel count: N/A"sv);
 	};
-	FusionDebugger.AddItemToDebugger(channelCountDebugItemReader, NULL, 500, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, channelCountDebugItemReader, NULL, 500, NULL);
 
 	const auto selChannelDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->selChannel)
@@ -402,7 +402,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("Selected channel: (none)"sv);
 	};
-	FusionDebugger.AddItemToDebugger(selChannelDebugItemReader, NULL, 100, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, selChannelDebugItemReader, NULL, 100, NULL);
 
 	const auto selChannelNumClientsDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->selChannel)
@@ -410,7 +410,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("> Client count: (no selected channel)"sv);
 	};
-	FusionDebugger.AddItemToDebugger(selChannelNumClientsDebugItemReader, NULL, 100, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, selChannelNumClientsDebugItemReader, NULL, 100, NULL);
 
 	const auto selClientDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->selClient)
@@ -418,7 +418,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("Selected client: (none)"sv);
 	};
-	FusionDebugger.AddItemToDebugger(selClientDebugItemReader, NULL, 100, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, selClientDebugItemReader, NULL, 100, NULL);
 
 	const auto selClientNumChannelsDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->selClient)
@@ -426,7 +426,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("> Channel count: (no selected client)"sv);
 	};
-	FusionDebugger.AddItemToDebugger(selClientNumChannelsDebugItemReader, NULL, 100, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, selClientNumChannelsDebugItemReader, NULL, 100, NULL);
 }
 
 void Extension::LacewingLoopThread(Extension * ext)
@@ -627,7 +627,7 @@ void Extension::GlobalInfo::MarkAsPendingDelete()
 void Extension::eventpumpdeleter(lacewing::eventpump pump)
 {
 	LOGV(_T("" PROJECT_NAME " - pump deleting...\n"));
-	lacewing::pump_delete(pump);
+	lacewing::eventpump_delete(pump);
 	LOGV(_T("" PROJECT_NAME " - pump deleted.\n"));
 	_CrtCheckMemory();
 }

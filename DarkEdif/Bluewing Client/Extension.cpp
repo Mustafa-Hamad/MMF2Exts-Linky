@@ -263,7 +263,8 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 	isGlobal = edPtr->isGlobal;
 
 #if EditorBuild
-	if (edPtr->eHeader.extSize < sizeof(EDITDATA) || edPtr->eHeader.extVersion != Extension::Version)
+	// For some reason, ext version may not be correct
+	if (edPtr->eHeader.extSize < sizeof(EDITDATA))
 	{
 		DarkEdif::MsgBox::Error(_T("Property size mismatch"), _T("Properties are the wrong size (MFA size %lu, extension size %zu). "
 			"Please re-create the Lacewing Blue Client object in frame, "
@@ -374,7 +375,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("Connected: No connection"sv);
 	};
-	FusionDebugger.AddItemToDebugger(connectedDebugItemReader, NULL, 500, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, connectedDebugItemReader, NULL, 500, NULL);
 
 	const auto clientNameDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		auto cliName = DarkEdif::UTF8ToTString(ext->Cli.name());
@@ -382,12 +383,12 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 			cliName = _T("(unset)"sv);
 		writeTo = _T("Name: ") + cliName;
 	};
-	FusionDebugger.AddItemToDebugger(clientNameDebugItemReader, NULL, 500, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, clientNameDebugItemReader, NULL, 500, NULL);
 
 	const auto channelCountDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		writeTo = _T("Channel count: ") + std::to_tstring(ext->Cli.channelcount());
 	};
-	FusionDebugger.AddItemToDebugger(channelCountDebugItemReader, NULL, 500, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, channelCountDebugItemReader, NULL, 500, NULL);
 
 	const auto selectedChannelDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->selChannel)
@@ -395,7 +396,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("Selected channel: (none)"sv);
 	};
-	FusionDebugger.AddItemToDebugger(selectedChannelDebugItemReader, NULL, 100, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, selectedChannelDebugItemReader, NULL, 100, NULL);
 
 	const auto numPeersDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->selChannel)
@@ -403,7 +404,7 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("Peer count: (no channel)"sv);
 	};
-	FusionDebugger.AddItemToDebugger(numPeersDebugItemReader, NULL, 100, NULL);
+	FusionDebugger.AddItemToDebugger(NULL, numPeersDebugItemReader, NULL, 100, NULL);
 
 	const auto selectedPeerDebugItemReader = [](Extension *ext, std::tstring &writeTo) {
 		if (ext->selPeer && ext->selChannel)
@@ -411,7 +412,6 @@ Extension::Extension(const EDITDATA* const edPtr, void* const objCExtPtr, const 
 		else
 			writeTo = _T("Selected peer: (none)"sv);
 	};
-	FusionDebugger.AddItemToDebugger(selectedPeerDebugItemReader, NULL, 100, NULL);
 }
 
 EventToRun::EventToRun() : numEvents(0), condTrig{ 35353, 35353 }
@@ -426,6 +426,7 @@ EventToRun::~EventToRun()
 	receivedMsg.content.~basic_string();
 	peer = nullptr;
 	channel = nullptr;
+	FusionDebugger.AddItemToDebugger(NULL, selectedPeerDebugItemReader, NULL, 100, NULL);
 }
 
 void Extension::LacewingLoopThread(void * thisExt)
